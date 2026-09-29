@@ -1,0 +1,325 @@
+\documentclass[conference,onecolumn]{IEEEtran}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{url}
+
+% Draft checklist before submission:
+% Replace student IDs, hardware details, and every TBD item with verified results.
+% The existing results.csv contains one-epoch exploratory runs, NOT the final
+% 30-epoch-budget study. Re-run all 21 experiments before completing the tables.
+% Export the notebook figures and replace the boxed figure placeholders below.
+% One-column working draft for reading and editing. For final submission,
+% remove ",onecolumn" to restore the required IEEE conference layout;
+% compile and check that the final version is <= 8 pages including references.
+
+\newcommand{\tbd}{\textit{TBD}}
+
+\title{How Architecture, Data Augmentation, and Optimiser Choice Affect CIFAR-10 Classification}
+\author{\IEEEauthorblockN{STUDENT-ID-1 \quad STUDENT-ID-2}
+\IEEEauthorblockA{PGR207 Deep Learning, Autumn 2026}}
+% For a three-person group, add STUDENT-ID-3 to the author block and statement.
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We investigate the effects of architecture, training-time data augmentation,
+and optimiser choice on ten-class CIFAR-10 classification. A single shared
+baseline anchors three one-factor-at-a-time studies: seven configurations
+trained with three random seeds each. A fixed stratified training/validation
+split, common evaluation protocol, and random weight initialisation make the
+comparisons interpretable. We report test top-1 accuracy and macro-F1 as
+mean $\pm$ standard deviation across seeds, alongside class-level errors,
+training curves, model size, and training cost. \tbd{}: insert the principal
+quantitative findings and a cautious conclusion after the full experiments.
+\end{abstract}
+
+\begin{IEEEkeywords}
+CIFAR-10, image classification, convolutional neural networks, data
+augmentation, optimisers, controlled experiments
+\end{IEEEkeywords}
+
+\section{Introduction}
+CIFAR-10 contains small natural images assigned to ten mutually exclusive
+classes~\cite{cifar10}. Architecture, augmentation, and optimisation can each
+change classification performance, but changing several at once prevents us
+from attributing an observed difference to a particular choice. We therefore
+compare three levels of each factor against one shared baseline, while
+holding data splits and the training and evaluation rules fixed.
+
+We ask: (RQ1) how much does architecture change accuracy and macro-F1,
+relative to model size and training cost? (RQ2) does stronger augmentation
+improve generalisation under the same training budget? (RQ3) does the
+optimiser change final performance or convergence speed? Our hypotheses,
+specified before inspecting full-budget results, are that (H1) the
+residual/dense models may outperform the plain CNN at greater cost; (H2)
+crop/flip may improve generalisation, while stronger augmentation may need
+more training; and (H3) optimisation will affect convergence, though a
+shared learning rate could favour one optimiser. Differences must be
+interpreted against the spread over three seeds, not a single best run.
+
+\section{Related Work}
+Residual connections facilitate training deeper image classifiers~\cite{resnet},
+whereas DenseNet reuses features through dense connections~\cite{densenet}.
+Together with a plain two-block CNN, these represent three distinct
+architectural choices, rather than three widths of the same model.
+Crop/flip is a standard image-classification augmentation; stronger policies
+such as RandAugment broaden the set of image transformations~\cite{randaugment}.
+A survey of augmentation methods motivates comparing progressively stronger
+image-only transformations~\cite{augmentation_survey}. SGD with momentum,
+Adam, and AdamW provide contrasting update rules~\cite{momentum,adam,adamw}.
+AdamW decouples weight decay from its gradient-based update. All models here
+start with random weights: pretrained ImageNet representations would obscure
+differences induced by the choices under study. Our implementations use
+PyTorch and TorchVision~\cite{pytorch,torchvision}.
+
+\section{Methods}
+\subsection{Data, preprocessing, and split}
+We use the official CIFAR-10 split of 50,000 training and 10,000 test images
+at $32\times32$ RGB resolution~\cite{cifar10}. A single class-stratified
+split of the official training partition (random state 42) yields 45,000
+training and 5,000 validation images; this split is reused across all runs.
+Each of the ten classes contributes 4,500 training and 500 validation
+images. Inputs are converted to floating point in $[0,1]$ and normalised
+per channel using mean $(0.5,0.5,0.5)$ and standard deviation
+$(0.5,0.5,0.5)$. Validation and test images receive only this deterministic
+transform. We do not resize the images or use pretrained weights.
+
+\subsection{Factor levels and controlled design}
+The baseline (C1) is a plain CNN with no stochastic augmentation and SGD
+with momentum. The CNN has two $3\times3$ convolution/ReLU blocks with
+32 and 64 channels, each followed by $2\times2$ max pooling, then a
+512-unit fully connected hidden layer and a ten-class output. For $32\times32$
+inputs, ResNet-18 and DenseNet-121 replace their initial $7\times7$
+stride-2 convolution with a $3\times3$ stride-1 convolution and remove
+initial max pooling; both use ten output classes. The resulting model
+parameter counts are 2,122,186 (CNN), 11,173,962 (ResNet-18), and
+6,956,426 (DenseNet-121), counting all parameters in the notebook's
+instantiated models.
+
+The augmentation levels are (A0) no random transformation; (A1) random
+crop to $32\times32$ with four-pixel padding, followed by random horizontal
+flip; and (A2) A1 followed by RandAugment with two operations and magnitude
+9~\cite{randaugment}. All levels share the same final normalisation, and
+only training images are augmented. Optimiser levels are SGD with momentum
+0.9, Adam, and AdamW. All use initial learning rate 0.01; SGD and Adam have
+zero weight decay, while AdamW uses weight decay 0.01. Other optimiser
+settings remain at PyTorch defaults~\cite{pytorch}.
+
+\begin{table}[htbp]
+\caption{The seven configurations. Each nonbaseline row changes exactly one factor relative to C1.}
+\label{tab:design}
+\centering
+\normalsize
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}llll@{}}
+\toprule
+ID & Architecture & Augmentation & Optimiser \\
+\midrule
+C1 & Plain CNN & A0 (none) & SGD + momentum \\
+C2 & ResNet-18 & A0 & SGD + momentum \\
+C3 & DenseNet-121 & A0 & SGD + momentum \\
+C4 & Plain CNN & A1 (crop, flip) & SGD + momentum \\
+C5 & Plain CNN & A2 (+RandAugment) & SGD + momentum \\
+C6 & Plain CNN & A0 & Adam \\
+C7 & Plain CNN & A0 & AdamW \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:design} gives $1+2+2+2=7$ configurations. C1 is trained
+once per seed and serves as the same reference in all three studies, for a
+total of $7\times3=21$ runs. A row differing in two factors is deliberately
+excluded. We use seeds 0, 1, and 2 to reinitialise model weights and
+randomness for shuffling and augmentation. The fixed validation split is
+not regenerated for each seed. Execution selects the Apple Metal
+Performance Shaders (MPS) device when available, otherwise CPU.
+\tbd{}: record the exact Mac chip, memory, PyTorch/TorchVision versions,
+and whether every final run used MPS.
+
+\subsection{Training and model selection}
+All runs use batch size 64, cross-entropy loss, and the same policy of at
+most 30 epochs. After each epoch, a ReduceLROnPlateau scheduler uses
+validation loss, patience 3, and a learning-rate reduction factor of 0.1.
+Training stops after six consecutive epochs without
+improvement. The weights with lowest validation loss are restored before
+a single test evaluation at the end of each run. Thus, actual epoch counts
+may differ, but the stopping and scheduling criteria are identical. We log
+sample-averaged training and validation loss and accuracy per epoch. Wall
+time covers training and validation, excluding final test evaluation.
+
+For the optimiser study we chose the assignment's
+\emph{same-learning-rate} option: initial learning rate 0.01 for all three
+optimisers. This strictly fixes the rate but is not necessarily equally
+appropriate for SGD, Adam, and AdamW. We did not perform a per-optimiser
+validation search; this limitation must be considered when interpreting
+the optimiser comparison. Optimiser-specific weight decay is reported
+above rather than silently treated as identical.
+
+\subsection{Metrics and aggregation}
+For each seed separately, test top-1 accuracy is the fraction of correctly
+classified images, expressed as a percentage. Macro-F1 is the unweighted
+mean of the ten class-wise F1 scores,
+$\mathrm{macro\text{-}F1}=\frac{1}{10}\sum_{c=1}^{10}
+\frac{2P_cR_c}{P_c+R_c}$, using zero for an undefined class score.
+We calculate per-class precision $P_c$ and recall $R_c$ for the
+configurations with lowest and highest \emph{mean best validation loss}
+across seeds, showing the test confusion matrix of representative seed 0
+for each. Selection of which examples to visualise does not change any
+model or training decision. Summary tables give the mean $\pm$ sample
+standard deviation ($n-1$ denominator) of the three independently
+computed test metrics; predictions are never pooled across seeds.
+The notebook writes one CSV row per run with metrics, parameter count,
+training time, validation loss, and serialised epoch histories.
+
+\section{Results}
+% Replace all TBD entries using the full-budget 21-run CSV; reuse C1 unchanged.
+Full-budget results are pending. The present one-epoch exploratory CSV is
+not used for the comparisons below because it does not represent the stated
+training budget or early-stopping policy. Tables~\ref{tab:arch}--\ref{tab:opt}
+show the intended reporting format; all three must reuse identical C1 values.
+
+\begin{table}[htbp]
+\caption{Architecture study: test mean $\pm$ SD over seeds 0, 1, 2. Training seconds are the mean per run.}
+\label{tab:arch}
+\centering
+\normalsize
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+ID/model & Params & Acc. (\%) & Macro-F1 & Time (s) \\
+\midrule
+C1 CNN & 2,122,186 & \tbd & \tbd & \tbd \\
+C2 ResNet-18 & 11,173,962 & \tbd & \tbd & \tbd \\
+C3 DenseNet-121 & 6,956,426 & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Augmentation study: test mean $\pm$ SD over three seeds. C1 repeats Table~\ref{tab:arch}.}
+\label{tab:aug}
+\centering
+\normalsize
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ID/strategy & Acc. (\%) & Macro-F1 & Time (s) \\
+\midrule
+C1 none & \tbd & \tbd & \tbd \\
+C4 crop + flip & \tbd & \tbd & \tbd \\
+C5 +RandAugment & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Optimiser study: test mean $\pm$ SD over three seeds. C1 repeats Table~\ref{tab:arch}.}
+\label{tab:opt}
+\centering
+\normalsize
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ID/optimiser & Acc. (\%) & Macro-F1 & Time (s) \\
+\midrule
+C1 SGD + momentum & \tbd & \tbd & \tbd \\
+C6 Adam & \tbd & \tbd & \tbd \\
+C7 AdamW & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\tbd{}: identify the two configurations by mean best validation loss and
+transcribe the seed-0 test precision/recall of all ten classes into
+Table~\ref{tab:classes}. Report the two corresponding confusion matrices;
+discuss specific off-diagonal pairs rather than only the diagonal.
+
+\begin{table}[htbp]
+\caption{Per-class test precision and recall for validation-selected best (B) and worst (W) configurations; representative seed 0. Replace the labels and values after the full runs.}
+\label{tab:classes}
+\centering
+\normalsize
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Class & $P_{\rm B}$ & $R_{\rm B}$ & $P_{\rm W}$ & $R_{\rm W}$ \\
+\midrule
+airplane   & \tbd & \tbd & \tbd & \tbd \\
+automobile & \tbd & \tbd & \tbd & \tbd \\
+bird       & \tbd & \tbd & \tbd & \tbd \\
+cat        & \tbd & \tbd & \tbd & \tbd \\
+deer       & \tbd & \tbd & \tbd & \tbd \\
+dog        & \tbd & \tbd & \tbd & \tbd \\
+frog       & \tbd & \tbd & \tbd & \tbd \\
+horse      & \tbd & \tbd & \tbd & \tbd \\
+ship       & \tbd & \tbd & \tbd & \tbd \\
+truck      & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][0.65in][c]{0.88\columnwidth}{\centering TBD: insert best and worst seed-0 confusion matrices}}
+\caption{Test confusion matrices for the best and worst configurations,
+selected by mean best validation loss. Specify both configuration IDs.}
+\label{fig:confusion}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][0.65in][c]{0.88\columnwidth}{\centering TBD: insert training/validation curves}}
+\caption{Representative seed-0 training and validation loss/accuracy;
+include optimiser convergence curves when discussing RQ3.}
+\label{fig:curves}
+\end{figure}
+
+\section{Discussion and Conclusion}
+\tbd{}: for RQ1--RQ3, insert differences against C1 in percentage points,
+the corresponding across-seed SD, and an interpretation of whether each
+difference exceeds the observed noise floor. Rank the three factors by
+effect size, state whether H1--H3 were supported, and compare accuracy
+per parameter and per unit training time where useful. Explain the
+classes most often confused in Fig.~\ref{fig:confusion} and use
+Fig.~\ref{fig:curves} to distinguish convergence from final performance.
+If a difference is comparable to seed variation, report an inconclusive
+comparison rather than a winner.
+
+This design measures each factor at only one setting of the other two;
+it cannot establish interactions. The fixed training budget, three seeds,
+small $32\times32$ images, and many comparisons against one test set limit
+generalisation. The common learning rate may bias the optimiser comparison,
+and training/validation wall time also includes data augmentation and
+hardware overhead. \tbd{}: replace this final sentence with the principal
+evidence-based conclusion once the results are complete.
+
+\section*{Contribution Statement}
+STUDENT-ID-1: \tbd{} (training, analysis, and writing contributions).
+STUDENT-ID-2: \tbd{} (training, analysis, and writing contributions).
+% Add a third student ID and contribution sentence if applicable.
+All members reviewed and can explain the full experimental pipeline and
+manuscript.
+
+\section*{AI Usage Statement}
+OpenCode (an AI assistant) was used to assist with notebook coding,
+debugging, and preparation of an initial LaTeX manuscript draft. The
+authors are responsible for checking the implementation, citations,
+reported numbers, and final interpretations. \tbd{}: add any other AI
+tools actually used and confirm this statement with the group.
+
+\begin{thebibliography}{00}
+\bibitem{cifar10} A. Krizhevsky, ``Learning multiple layers of features from tiny images,'' University of Toronto, Tech. Rep., 2009. [Online]. Available: \url{https://www.cs.toronto.edu/~kriz/cifar.html}
+\bibitem{torchvision} TorchVision maintainers and contributors, ``TorchVision: PyTorch's computer vision library,'' 2016. [Online]. Available: \url{https://github.com/pytorch/vision}
+\bibitem{resnet} K. He, X. Zhang, S. Ren, and J. Sun, ``Deep residual learning for image recognition,'' in \emph{Proc. IEEE Conf. Computer Vision and Pattern Recognition}, 2016, pp. 770--778, doi: 10.1109/CVPR.2016.90.
+\bibitem{densenet} G. Huang, Z. Liu, L. van der Maaten, and K. Q. Weinberger, ``Densely connected convolutional networks,'' in \emph{Proc. IEEE Conf. Computer Vision and Pattern Recognition}, 2017, pp. 4700--4708, doi: 10.1109/CVPR.2017.243.
+\bibitem{randaugment} E. D. Cubuk, B. Zoph, J. Shlens, and Q. V. Le, ``RandAugment: Practical automated data augmentation with a reduced search space,'' in \emph{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition Workshops}, 2020, pp. 702--703, doi: 10.1109/CVPRW50498.2020.00359.
+\bibitem{augmentation_survey} C. Shorten and T. M. Khoshgoftaar, ``A survey on image data augmentation for deep learning,'' \emph{Journal of Big Data}, vol. 6, no. 60, 2019, doi: 10.1186/s40537-019-0197-0.
+\bibitem{momentum} I. Sutskever, J. Martens, G. Dahl, and G. Hinton, ``On the importance of initialization and momentum in deep learning,'' in \emph{Proc. International Conf. Machine Learning}, 2013, pp. 1139--1147.
+\bibitem{adam} D. P. Kingma and J. Ba, ``Adam: A method for stochastic optimization,'' in \emph{Proc. International Conf. Learning Representations}, 2015.
+\bibitem{adamw} I. Loshchilov and F. Hutter, ``Decoupled weight decay regularization,'' in \emph{Proc. International Conf. Learning Representations}, 2019.
+\bibitem{pytorch} A. Paszke \emph{et al.}, ``PyTorch: An imperative style, high-performance deep learning library,'' in \emph{Advances in Neural Information Processing Systems 32}, 2019, pp. 8024--8035.
+\end{thebibliography}
+
+\end{document}

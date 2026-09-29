@@ -1,2 +1,5 @@
 cifar10_data/
 .DS_Store
+.venv/
+cifar-10-batches-py/
+best_model.pth
